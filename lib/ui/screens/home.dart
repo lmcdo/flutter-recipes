@@ -6,6 +6,7 @@ import 'package:recipesflutter/recipe_card.dart';
 import 'package:recipesflutter/model/state.dart';
 import 'package:recipesflutter/state_widget.dart';
 import 'package:recipesflutter/ui/screens/login.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 
 class HomeScreen extends StatefulWidget {
@@ -15,9 +16,7 @@ class HomeScreen extends StatefulWidget {
 
 class HomeScreenState extends State<HomeScreen> {
   StateModel appState;
-  List<Recipe> recipes = getRecipes();
-  List<String> userFavorites = getFavoritesIDs();
-
+  
   DefaultTabController _buildTabView({Widget body}) {
     const double _iconSize = 20.0;
 
@@ -48,6 +47,7 @@ class HomeScreenState extends State<HomeScreen> {
     );
   }
 
+
   Widget _buildContent() {
     if (appState.isLoading) {
       return _buildTabView(
@@ -69,24 +69,46 @@ class HomeScreenState extends State<HomeScreen> {
   }
 
   TabBarView _buildTabsContent() {
-    Padding _buildRecipes(List<Recipe> recipesList) {
+    Padding _buildRecipes({RecipeType recipeType, List<String> ids}) {
+      CollectionReference collectionReference = 
+        Firestore.instance.collection('recipes');
+      Stream<QuerySnapshot> stream;
+      if (recipeType != null){
+        stream = collectionReference.
+        where("type", isEqualTo: recipeType.index)
+        .snapshots();
+      } else {
+        stream = collectionReference.snapshots();
+      }
       return Padding(
         // Padding before and after the list view:
         padding: const EdgeInsets.symmetric(vertical: 5.0),
         child: Column(
           children: <Widget>[
             Expanded(
-              child: ListView.builder(
-                itemCount: recipesList.length,
-                itemBuilder: (BuildContext context, int index) {
-                  return new RecipeCard(
-                    recipe: recipesList[index],
-                    inFavorites: userFavorites.contains(recipesList[index].id),
-                    onFavoriteButtonPressed: _handleFavoritesListChanged,
+              child: StreamBuilder(
+                stream: stream,
+                builder: (BuildContext context,
+                  AsyncSnapshot<QuerySnapshot> snapshot) {
+                if (!snapshot.hasData) return _buildLoadingIndicator();
+                return new ListView(
+                  children: snapshot.data.documents
+                  .where((d) => ids == null || ids.contains(d.documentID))
+                  .map((document) {
+                    return new RecipeCard(
+                      recipe: 
+                      Recipe.fromMap(document.data, document.documentID),
+                      inFavorites:
+                        appState.favorites.contains(document.documentID),
+                      onFavoriteButtonPressed: _handleFavoritesListChanged,
+                    );
+                  }).toList(),
                   );
-                },
+                  },
               ),
-            ),
+    )
+          
+            
           ],
         ),
       );
@@ -95,13 +117,11 @@ class HomeScreenState extends State<HomeScreen> {
     return TabBarView(
       children: [
         _buildRecipes(
-            recipes.where((recipe) => recipe.type == RecipeType.food).toList()),
-        _buildRecipes(recipes
-            .where((recipe) => recipe.type == RecipeType.drink)
-            .toList()),
-        _buildRecipes(recipes
-            .where((recipe) => userFavorites.contains(recipe.id))
-            .toList()),
+          recipeType : RecipeType.food),
+        _buildRecipes(
+          recipeType : RecipeType.drink),
+        _buildRecipes(
+          ids: appState.favorites),
         Center(child: Icon(Icons.settings)),
       ],
     );
@@ -110,13 +130,17 @@ class HomeScreenState extends State<HomeScreen> {
   // Inactive widgets are going to call this method to
   // signalize the parent widget HomeScreen to refresh the list view:
   void _handleFavoritesListChanged(String recipeID) {
-    setState(() {
-      if (userFavorites.contains(recipeID)) {
-        userFavorites.remove(recipeID);
-      } else {
-        userFavorites.add(recipeID);
+    updateFavorites(appState.user.uid, recipeID).then((result) {
+      if (result == true) {
+        setState(() {
+          if (!appState.favorites.contains(recipeID))
+          appState.favorites.add(recipeID);
+          else
+          appState.favorites.remove(recipeID);
+        });
       }
     });
+   
   }
 
   @override
@@ -125,4 +149,7 @@ class HomeScreenState extends State<HomeScreen> {
     appState = StateWidget.of(context).state;
     return _buildContent();
   }
+
+  
 }
+

@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:recipesflutter/model/state.dart';
 import 'package:recipesflutter/utils/auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class StateWidget extends StatefulWidget {
   final StateModel state;
@@ -17,14 +18,20 @@ class StateWidget extends StatefulWidget {
   });
 
   static _StateWidgetState of(BuildContext context) {
-    return  (context.inheritFromWidgetOfExactType(_StateDataWidget)
-    as _StateDataWidget)
-    .data;
+    return (context.inheritFromWidgetOfExactType(_StateDataWidget)
+            as _StateDataWidget)
+        .data;
   }
 
   @override
   _StateWidgetState createState() => new _StateWidgetState();
 }
+/* 
+FirebaseFirestore firestore = FirebaseFirestore.getInstance();
+FirebaseFirestoreSettings settings = new FirebaseFirestoreSettings.Builder()
+    .setTimestampsInSnapshotsEnabled(true)
+    .build();
+firestore.setFirestoreSettings(settings); */
 
 class _StateWidgetState extends State<StateWidget> {
   StateModel state;
@@ -32,21 +39,34 @@ class _StateWidgetState extends State<StateWidget> {
   final GoogleSignIn googleSignIn = new GoogleSignIn();
 
   @override
-  void initState(){
+  void initState() {
     super.initState();
     if (widget.state != null) {
       state = widget.state;
-
     } else {
       state = new StateModel(isLoading: true);
       initUser();
     }
   }
 
+  Future<List<String>> getFavorites() async {
+    DocumentSnapshot querySnapshot = await Firestore.instance
+        .collection('users')
+        .document(state.user.uid)
+        .get();
+    if (querySnapshot.exists &&
+        querySnapshot.data.containsKey('favorites') &&
+        querySnapshot.data['favorites'] is List) {
+      return List<String>.from(querySnapshot.data['favorites']);
+    }
+
+    return [];
+  }
+
   Future<Null> initUser() async {
     googleAccount = await getSignedInAccount(googleSignIn);
 
-    if(googleAccount == null) {
+    if (googleAccount == null) {
       setState(() {
         state.isLoading = false;
       });
@@ -55,16 +75,19 @@ class _StateWidgetState extends State<StateWidget> {
     }
   }
 
-
   Future<Null> signInWithGoogle() async {
     if (googleAccount == null) {
-      googleAccount = await googleSignIn.signIn();  
-}
-FirebaseUser firebaseUser = await signIntoFirebase(googleAccount);
-setState(() {
-  state.isLoading = false;
-  state.user = firebaseUser;
-});
+      googleAccount = await googleSignIn.signIn();
+    }
+    FirebaseUser firebaseUser = await signIntoFirebase(googleAccount);
+    state.user = firebaseUser; // new
+    List<String> favorites = await getFavorites(); // new
+
+    setState(() {
+      state.isLoading = false;
+      state.favorites = favorites; // new
+      state.user = firebaseUser;
+    });
   }
 
   @override
@@ -75,6 +98,7 @@ setState(() {
     );
   }
 }
+
 class _StateDataWidget extends InheritedWidget {
   final _StateWidgetState data;
 
@@ -84,6 +108,6 @@ class _StateDataWidget extends InheritedWidget {
     @required this.data,
   }) : super(key: key, child: child);
 
-  @override updateShouldNotify(_StateDataWidget old) => true;
-
+  @override
+  updateShouldNotify(_StateDataWidget old) => true;
 }
